@@ -80,23 +80,16 @@ bot.on('text', async (ctx) => {
     // Если прислали ссылку — КАЧАЕМ СРАЗУ!
     if (text.includes('http://') || text.includes('https://')) {
         userLinks[userId] = text; // Запоминаем для кнопки MP3
-        const statusMessage = await ctx.reply('⏳ Обрабатываю ссылку, подожди немного...');
+        
+        // Отправляем ТОЛЬКО анимированные часики ⏳
+        const statusMessage = await ctx.reply('⏳');
 
         try {
-            // Запрос к стабильному зеркалу Cobalt API
-            const response = await axios.post('https://cobalt.api.rednaweb.xyz/api/json', {
-                url: text,
-                vQuality: '720' 
-            }, {
-                headers: {
-                    'Accept': 'application/json',
-                    'Content-Type': 'application/json',
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-                }
-            });
+            // Переключаемся на альтернативное стабильное API
+            const response = await axios.get(`https://api.lolhuman.xyz/api/download/instagram?apikey=freekey&url=${encodeURIComponent(text)}`);
 
-            if (response.data && response.data.url) {
-                // Удаляем сообщение «Обрабатываю...»
+            if (response.data && response.data.result && response.data.result.url) {
+                // Удаляем часики ⏳
                 try { await ctx.telegram.deleteMessage(ctx.chat.id, statusMessage.message_id); } catch(e){}
 
                 // Создаем красивую кнопку СКАЧАТЬ МУЗЫКУ прямо под видео
@@ -105,7 +98,7 @@ bot.on('text', async (ctx) => {
                 ]);
 
                 // Отправляем готовое видео с кнопкой под ним!
-                await ctx.replyWithVideo(response.data.url, { 
+                await ctx.replyWithVideo(response.data.result.url, { 
                     caption: `⚡ Скачано легко через @${ctx.botInfo.username}`,
                     ...musicKeyboard
                 });
@@ -113,11 +106,30 @@ bot.on('text', async (ctx) => {
                 db.stats.total_downloads++;
                 saveDB();
             } else {
-                ctx.reply('❌ Не удалось получить прямую ссылку. Сервер вернул пустой ответ.');
+                // Если не инстаграм, пробуем универсальный метод этого же API
+                const fallbackResponse = await axios.get(`https://api.lolhuman.xyz/api/twtdownload?apikey=freekey&url=${encodeURIComponent(text)}`);
+                if (fallbackResponse.data && fallbackResponse.data.result && fallbackResponse.data.result.url) {
+                    try { await ctx.telegram.deleteMessage(ctx.chat.id, statusMessage.message_id); } catch(e){}
+                    
+                    const musicKeyboard = Markup.inlineKeyboard([
+                        [Markup.button.callback('🎵 Скачать музыку из видео 🎧', 'get_mp3')]
+                    ]);
+
+                    await ctx.replyWithVideo(fallbackResponse.data.result.url, { 
+                        caption: `⚡ Скачано легко через @${ctx.botInfo.username}`,
+                        ...musicKeyboard
+                    });
+                    db.stats.total_downloads++;
+                    saveDB();
+                } else {
+                    try { await ctx.telegram.deleteMessage(ctx.chat.id, statusMessage.message_id); } catch(e){}
+                    ctx.reply('❌ Не удалось скачать. Возможно, ссылка не поддерживается или профиль приватный.');
+                }
             }
         } catch (error) {
             console.error(error);
-            ctx.reply('❌ Ошибка API. Возможно, сервис перегружен. Попробуй еще раз через минуту.');
+            try { await ctx.telegram.deleteMessage(ctx.chat.id, statusMessage.message_id); } catch(e){}
+            ctx.reply('❌ Ошибка сети. Попробуй отправить ссылку ещё раз.');
         }
     } else {
         // Кнопки нижнего меню
@@ -143,19 +155,10 @@ bot.action('get_mp3', async (ctx) => {
     await ctx.answerCbQuery('Извлекаю аудиодорожку... ⏳');
 
     try {
-        const response = await axios.post('https://cobalt.api.rednaweb.xyz/api/json', {
-            url: url,
-            isAudioOnly: true
-        }, {
-            headers: {
-                'Accept': 'application/json',
-                'Content-Type': 'application/json',
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-            }
-        });
+        const response = await axios.get(`https://api.lolhuman.xyz/api/twtdownload?apikey=freekey&url=${encodeURIComponent(url)}`);
 
-        if (response.data && response.data.url) {
-            await ctx.replyWithAudio(response.data.url, { caption: '🎵 Аудио извлечено успешно!' });
+        if (response.data && response.data.result && response.data.result.url) {
+            await ctx.replyWithAudio(response.data.result.url, { caption: '🎵 Аудио извлечено успешно!' });
         } else {
             await ctx.reply('❌ Не удалось вытащить звук.');
         }
@@ -165,7 +168,7 @@ bot.action('get_mp3', async (ctx) => {
     }
 });
 
-// ================= АДМИНКА (СТРОЖАЙШИЙ ДОСТУП) =================
+// ================= АДМИНКА =================
 bot.command('admin', (ctx) => {
     if (ctx.from.id !== ADMIN_ID) {
         return ctx.reply('❌ У тебя нет прав для использования этой команды.');
@@ -173,18 +176,19 @@ bot.command('admin', (ctx) => {
     const adminKeyboard = Markup.inlineKeyboard([
         [Markup.button.callback('📢 Сделать рассылку', 'admin_broadcast')]
     ]);
-    ctx.reply('👑 Добро пожаловать в секретную Админ-панель!', adminKeyboard);
+    ctx.reply('👑 Добро пожаловать в секретную Admin-панель!', adminKeyboard);
 });
 
 bot.action('admin_broadcast', (ctx) => {
     if (ctx.from.id !== ADMIN_ID) return ctx.answerCbQuery();
     ctx.answerCbQuery();
     waitingForBroadcast = true;
-    ctx.reply('📝 Напиши текст рассылки, который увидят ВСЕ пользователи бота:');
+    ctx.reply('📝 Напиши текст рассылки для ВСЕХ пользователей:');
 });
 // ===============================================================
 
-bot.launch().then(() => console.log('🚀 Бот на стабильном зеркале запущен!'));
+bot.launch().then(() => console.log('🚀 Бот с красивой анимацией запущен!'));
 
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
+
