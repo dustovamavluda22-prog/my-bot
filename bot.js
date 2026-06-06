@@ -1,4 +1,3 @@
-
 const { Telegraf, Markup } = require('telegraf');
 const axios = require('axios');
 const fs = require('fs');
@@ -6,7 +5,7 @@ const fs = require('fs');
 // Твой токен
 const bot = new Telegraf('8883314122:AAF_iwlBfEeGWc01AO3i5FpRpIpX6U0EPss');
 
-// Твой Telegram ID — ТЕПЕРЬ ПОЛНАЯ ЗАЩИТА
+// Твой Telegram ID — ПОЛНАЯ ЗАЩИТА
 const ADMIN_ID = 6695270539; 
 
 // Файл для хранения пользователей и статистики
@@ -60,7 +59,7 @@ bot.on('text', async (ctx) => {
     const text = ctx.message.text;
     const userId = ctx.from.id;
 
-    // СТРОГАЯ ПРОВЕРКА АДМИНА ДЛЯ РАССЫЛКИ
+    // Строгая проверка админа для рассылки
     if (waitingForBroadcast) {
         if (userId !== ADMIN_ID) {
             waitingForBroadcast = false;
@@ -84,14 +83,15 @@ bot.on('text', async (ctx) => {
         const statusMessage = await ctx.reply('⏳ Обрабатываю ссылку, подожди немного...');
 
         try {
-            // Запрос к Cobalt за лучшим качеством видео
-            const response = await axios.post('https://api.cobalt.tools/api/json', {
+            // Запрос к стабильному зеркалу Cobalt API
+            const response = await axios.post('https://cobalt.api.rednaweb.xyz/api/json', {
                 url: text,
-                vQuality: '720' // Оптимальное качество для Телеграма
+                vQuality: '720' 
             }, {
                 headers: {
                     'Accept': 'application/json',
-                    'Content-Type': 'application/json'
+                    'Content-Type': 'application/json',
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
                 }
             });
 
@@ -113,11 +113,11 @@ bot.on('text', async (ctx) => {
                 db.stats.total_downloads++;
                 saveDB();
             } else {
-                ctx.reply('❌ Не удалось скачать. Возможно, видео приватное.');
+                ctx.reply('❌ Не удалось получить прямую ссылку. Сервер вернул пустой ответ.');
             }
         } catch (error) {
             console.error(error);
-            ctx.reply('❌ Ошибка при загрузке. Попробуй еще раз или скинь другую ссылку.');
+            ctx.reply('❌ Ошибка API. Возможно, сервис перегружен. Попробуй еще раз через минуту.');
         }
     } else {
         // Кнопки нижнего меню
@@ -143,13 +143,14 @@ bot.action('get_mp3', async (ctx) => {
     await ctx.answerCbQuery('Извлекаю аудиодорожку... ⏳');
 
     try {
-        const response = await axios.post('https://api.cobalt.tools/api/json', {
+        const response = await axios.post('https://cobalt.api.rednaweb.xyz/api/json', {
             url: url,
             isAudioOnly: true
         }, {
             headers: {
                 'Accept': 'application/json',
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
             }
         });
 
@@ -183,8 +184,7 @@ bot.action('admin_broadcast', (ctx) => {
 });
 // ===============================================================
 
-bot.launch().then(() => console.log('🚀 Бот с защищенной админкой успешно запущен!'));
+bot.launch().then(() => console.log('🚀 Бот на стабильном зеркале запущен!'));
 
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
-
