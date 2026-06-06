@@ -1,159 +1,73 @@
 const { Telegraf, Markup } = require('telegraf');
-const axios = require('axios');
-const fs = require('fs');
 
-// Твой токен
-const bot = new Telegraf('8883314122:AAF_iwlBfEeGWc01AO3i5FpRpIpX6U0EPss');
+// Railway сам подтянет TOKEN из переменных, которые мы настроили
+const bot = new Telegraf(process.env.TOKEN);
 
-// Твой Telegram ID 
-const ADMIN_ID = 66952705396695270539; 
-
-// Файл для хранения пользователей и статистики
-const DB_FILE = 'users.json';
-let db = { users: [], stats: { total_downloads: 0 } };
-
-if (fs.existsSync(DB_FILE)) {
-    db = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
-}
-
-function saveDB() {
-    fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
-}
-
-// Функция для добавления нового юзера в базу
-function registerUser(ctx) {
-    const userId = ctx.from.id;
-    if (!db.users.includes(userId)) {
-        db.users.push(userId);
-        saveDB();
-    }
-}
-
-// Переменная для отслеживания режима рассылки
-let waitingForBroadcast = false;
-
-// Главное меню (при команде /start)
+// 1. Обработка команды /start — ТОЛЬКО КРАСИВЫЙ ТЕКСТ И КНОПКИ
 bot.start((ctx) => {
-    registerUser(ctx);
-    
-    // Красивые кнопки прямо под сообщением (как на скрине)
-    const inlineKeyboard = Markup.inlineKeyboard([
-        [Markup.button.callback('📥 Скачать видео', 'menu_download')],
-        [Markup.button.callback('📊 Моя статистика', 'menu_stats'), Markup.button.callback('⚙️ Настройки', 'menu_settings')]
-    ]);
+    const welcomeText = 
+        `👋 *Привет, друг\\!* \n\n` +
+        `🤖 Рад видеть тебя в нашем ультимативном боте для скачивания\\! \n\n` +
+        `📥 *Что я умею:* \n` +
+        `Просто отправь мне ссылку на видео из *TikTok*, *YouTube* или *Instagram Reels*, и я помогу тебе скачать его в нужном качестве или вытащить оттуда музыку\\! \n\n` +
+        `👇 Выбирай нужный раздел на кнопках ниже или просто кидай ссылку\\!`;
 
-    ctx.replyWithMarkdownV2(
-        `👋 *Привет\\! Я твой бот для скачивания видео\\!*\\n\\n` +
-        `🤖 Отправь мне ссылку на видео из *YouTube, TikTok, Instagram или VK*, и я пришлю тебе файл\\!`,
-        inlineKeyboard
+    ctx.replyWithMarkdownV2(welcomeText, 
+        Markup.keyboard([
+            ['🎵 Скачать Музыку', '🔥 Топ Скачиваний'],
+            ['ℹ️ Инструкция']
+        ]).resize()
     );
 });
 
-// Обработка нажатий на инлайн-кнопки
-bot.action('menu_download', (ctx) => {
-    ctx.answerCbQuery();
-    ctx.reply('Просто отправь мне ссылку на видео в чат, и я начну загрузку! 🚀');
-});
-
-bot.action('menu_stats', (ctx) => {
-    ctx.answerCbQuery();
-    ctx.reply(`📊 Статистика:\n• Всего пользователей в боте: ${db.users.length}\n• Скачано видео через бота: ${db.stats.total_downloads}`);
-});
-
-bot.action('menu_settings', (ctx) => {
-    ctx.answerCbQuery();
-    ctx.reply('⚙️ Настройки: Бот автоматически выбирает максимальное доступное качество видео.');
-});
-
-// ================= СЕКЦИЯ АДМИНА =================
-bot.command('admin', (ctx) => {
-    if (ctx.from.id !== ADMIN_ID) {
-        return ctx.reply('❌ У тебя нет прав для использования этой команды.');
-    }
-
-    const adminKeyboard = Markup.inlineKeyboard([
-        [Markup.button.callback('📢 Сделать рассылку', 'admin_broadcast')],
-        [Markup.button.callback('📊 Полная статистика', 'admin_stats')]
-    ]);
-
-    ctx.reply('👑 Добро пожаловать в Админ-панель!', adminKeyboard);
-});
-
-// Нажатие кнопки "Сделать рассылку"
-bot.action('admin_broadcast', (ctx) => {
-    if (ctx.from.id !== ADMIN_ID) return ctx.answerCbQuery();
-    ctx.answerCbQuery();
-    waitingForBroadcast = true;
-    ctx.reply('📝 Напиши текст сообщения, которое нужно отправить ВСЕМ пользователям:');
-});
-
-// Нажатие кнопки "Полная статистика" в админке
-bot.action('admin_stats', (ctx) => {
-    if (ctx.from.id !== ADMIN_ID) return ctx.answerCbQuery();
-    ctx.answerCbQuery();
-    ctx.reply(`📊 [АДМИН] Статистика системы:\n• Юзеров в базе: ${db.users.length}\n• Успешных скачиваний: ${db.stats.total_downloads}`);
-});
-// =================================================
-
-// Обработка обычного текста и ссылок
+// 2. Логика, когда пользователь присылает ссылку на видео
 bot.on('text', async (ctx) => {
-    registerUser(ctx);
-
-    // Если админ включил режим рассылки
-    if (ctx.from.id === ADMIN_ID && waitingForBroadcast) {
-        waitingForBroadcast = false;
-        const textToBroadcast = ctx.message.text;
-        ctx.reply(`📢 Начинаю рассылку для ${db.users.length} пользователей...`);
-        
-        let successCount = 0;
-        for (const userId of db.users) {
-            try {
-                await ctx.telegram.sendMessage(userId, textToBroadcast);
-                successCount++;
-            } catch (err) {
-                console.log(`Не удалось отправить сообщение юзеру ${userId}`);
-            }
-        }
-        return ctx.reply(`✅ Рассылка завершена! Успешно доставлено: ${successCount}/${db.users.length}`);
-    }
-
     const text = ctx.message.text;
 
-    // Проверка на ссылку
+    // Проверяем, ссылка ли это
     if (text.includes('http://') || text.includes('https://')) {
-        await ctx.reply('⏳ Обрабатываю ссылку, подожди немного...');
+        // Создаем инлайн-кнопки под сообщением для выбора качества
+        const qualityKeyboard = Markup.inlineKeyboard([
+            [
+                Markup.button.callback('🎬 360p', 'download_360'),
+                Markup.button.callback('🎬 720p HD', 'download_720')
+            ],
+            [
+                Markup.button.callback('🚀 1080p Full HD', 'download_1080'),
+                Markup.button.callback('🎵 Только MP3', 'download_audio')
+            ]
+        ]);
 
-        try {
-            const response = await axios.get(`https://api.cobalt.tools/api/json`, {
-                method: 'POST',
-                headers: {
-                    'Accept': 'application/json',
-                    'Content-Type': 'application/json'
-                },
-                data: { url: text }
-            });
-
-            if (response.data && response.data.url) {
-                await ctx.reply('🎬 Видео найдено! Отправляю файл...');
-                await ctx.replyWithVideo(response.data.url);
-                
-                // Считаем скачивание в общую стату
-                db.stats.total_downloads++;
-                saveDB();
-            } else {
-                ctx.reply('❌ Не удалось получить прямую ссылку на видео. Попробуй другую ссылку.');
-            }
-        } catch (error) {
-            console.error(error);
-            ctx.reply('❌ Ошибка при скачивании. Возможно, этот сайт пока не поддерживается или защищен.');
-        }
+        await ctx.reply('🔍 Ссылка принята! В каком качестве качаем?', qualityKeyboard);
     } else {
-        ctx.reply('🤖 Я понимаю только ссылки на видео. Отправь мне ссылку!');
+        // Реакция на обычные кнопки меню под клавишами
+        if (text === '🎵 Скачать Музыку') {
+            return ctx.reply('🎵 Чтобы скачать только аудио, просто отправь мне ссылку на видео, а затем нажми кнопку "Только MP3" под ним!');
+        }
+        if (text === '🔥 Топ Скачиваний') {
+            return ctx.reply('📊 Сегодня чаще всего качают тренды из TikTok и Shorts! Будь на волне 🚀');
+        }
+        if (text === 'ℹ️ Инструкция') {
+            return ctx.reply('📖 Всё проще некуда:\n1. Копируешь ссылку из TikTok/YouTube/Instagram.\n2. Отправляешь её мне в чат.\n3. Выбираешь качество на кнопке под видео.\n4. Забираешь готовый файл!');
+        }
+
+        // Если прислал не ссылку и не кнопку
+        ctx.reply('🤖 Я понимаю только ссылки на видео или кнопки меню! Отправь мне ссылку!');
     }
 });
 
-// Запуск бота
-bot.launch().then(() => console.log('🚀 Бот успешно запущен!'));
+// 3. Обработка нажатий на кнопки качества (InlineButtons)
+bot.action('download_360', (ctx) => ctx.answerCbQuery('Запускаю скачивание в 360p... ⏳'));
+bot.action('download_720', (ctx) => ctx.answerCbQuery('Запускаю скачивание в 720p HD... ⏳'));
+bot.action('download_1080', (ctx) => ctx.answerCbQuery('Запускаю скачивание в 1080p Full HD... ⏳'));
+bot.action('download_audio', (ctx) => ctx.answerCbQuery('Извлекаю аудиодорожку в MP3... ⏳'));
 
+// Запуск бота
+bot.launch().then(() => {
+    console.log('Бот успешно запущен на Railway!');
+});
+
+// Плавная остановка
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
+
