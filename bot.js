@@ -85,10 +85,20 @@ bot.on('text', async (ctx) => {
         const statusMessage = await ctx.reply('⏳');
 
         try {
-            // Переключаемся на альтернативное стабильное API
-            const response = await axios.get(`https://api.lolhuman.xyz/api/download/instagram?apikey=freekey&url=${encodeURIComponent(text)}`);
+            // Запрос к стабильному API на базе движка SaveFrom
+            const response = await axios.post('https://worker.sf-api.com/api/v1/download', {
+                url: text
+            }, {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                }
+            });
 
-            if (response.data && response.data.result && response.data.result.url) {
+            // Ищем прямую ссылку на видео в ответе
+            if (response.data && response.data.url && response.data.url[0] && response.data.url[0].url) {
+                const videoUrl = response.data.url[0].url;
+
                 // Удаляем часики ⏳
                 try { await ctx.telegram.deleteMessage(ctx.chat.id, statusMessage.message_id); } catch(e){}
 
@@ -98,7 +108,7 @@ bot.on('text', async (ctx) => {
                 ]);
 
                 // Отправляем готовое видео с кнопкой под ним!
-                await ctx.replyWithVideo(response.data.result.url, { 
+                await ctx.replyWithVideo(videoUrl, { 
                     caption: `⚡ Скачано легко через @${ctx.botInfo.username}`,
                     ...musicKeyboard
                 });
@@ -106,30 +116,13 @@ bot.on('text', async (ctx) => {
                 db.stats.total_downloads++;
                 saveDB();
             } else {
-                // Если не инстаграм, пробуем универсальный метод этого же API
-                const fallbackResponse = await axios.get(`https://api.lolhuman.xyz/api/twtdownload?apikey=freekey&url=${encodeURIComponent(text)}`);
-                if (fallbackResponse.data && fallbackResponse.data.result && fallbackResponse.data.result.url) {
-                    try { await ctx.telegram.deleteMessage(ctx.chat.id, statusMessage.message_id); } catch(e){}
-                    
-                    const musicKeyboard = Markup.inlineKeyboard([
-                        [Markup.button.callback('🎵 Скачать музыку из видео 🎧', 'get_mp3')]
-                    ]);
-
-                    await ctx.replyWithVideo(fallbackResponse.data.result.url, { 
-                        caption: `⚡ Скачано легко через @${ctx.botInfo.username}`,
-                        ...musicKeyboard
-                    });
-                    db.stats.total_downloads++;
-                    saveDB();
-                } else {
-                    try { await ctx.telegram.deleteMessage(ctx.chat.id, statusMessage.message_id); } catch(e){}
-                    ctx.reply('❌ Не удалось скачать. Возможно, ссылка не поддерживается или профиль приватный.');
-                }
+                try { await ctx.telegram.deleteMessage(ctx.chat.id, statusMessage.message_id); } catch(e){}
+                ctx.reply('❌ Видео не найдено. Возможно, профиль приватный или ссылка неверная.');
             }
         } catch (error) {
             console.error(error);
             try { await ctx.telegram.deleteMessage(ctx.chat.id, statusMessage.message_id); } catch(e){}
-            ctx.reply('❌ Ошибка сети. Попробуй отправить ссылку ещё раз.');
+            ctx.reply('❌ Ошибка загрузки. Попробуй отправить ссылку еще раз через пару секунд.');
         }
     } else {
         // Кнопки нижнего меню
@@ -155,10 +148,10 @@ bot.action('get_mp3', async (ctx) => {
     await ctx.answerCbQuery('Извлекаю аудиодорожку... ⏳');
 
     try {
-        const response = await axios.get(`https://api.lolhuman.xyz/api/twtdownload?apikey=freekey&url=${encodeURIComponent(url)}`);
+        const response = await axios.post('https://worker.sf-api.com/api/v1/download', { url: url });
 
-        if (response.data && response.data.result && response.data.result.url) {
-            await ctx.replyWithAudio(response.data.result.url, { caption: '🎵 Аудио извлечено успешно!' });
+        if (response.data && response.data.url && response.data.url[0] && response.data.url[0].url) {
+            await ctx.replyWithAudio(response.data.url[0].url, { caption: '🎵 Аудио извлечено успешно!' });
         } else {
             await ctx.reply('❌ Не удалось вытащить звук.');
         }
@@ -183,12 +176,11 @@ bot.action('admin_broadcast', (ctx) => {
     if (ctx.from.id !== ADMIN_ID) return ctx.answerCbQuery();
     ctx.answerCbQuery();
     waitingForBroadcast = true;
-    ctx.reply('📝 Напиши текст рассылки для ВСЕХ пользователей:');
+    ctx.reply('📝 Напиши text рассылки для ВСЕХ пользователей:');
 });
 // ===============================================================
 
-bot.launch().then(() => console.log('🚀 Бот с красивой анимацией запущен!'));
+bot.launch().then(() => console.log('🚀 Бот на движке SaveFrom успешно запущен!'));
 
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
-
