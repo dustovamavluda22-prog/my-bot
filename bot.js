@@ -26,7 +26,7 @@ function registerUser(ctx) {
 const userLinks = {};
 let waitingForBroadcast = false;
 
-// 1. Главное меню (Обновленное, с новыми кнопками)
+// 1. Главное меню (Пересобрано на 3 кнопки)
 bot.start((ctx) => {
     registerUser(ctx);
     const welcomeText = 
@@ -38,12 +38,12 @@ bot.start((ctx) => {
     ctx.reply(welcomeText, 
         Markup.keyboard([
             ['🔥 Топ Скачиваний', 'ℹ️ Инструкция'],
-            ['🆘 Помощь', '🌟 Поддержать']
+            ['🆘 Помощь']
         ]).resize()
     );
 });
 
-// Функция для очистки ссылок от мусора приложений
+// Вычищаем мусор из ссылок
 function extractUrl(text) {
     const match = text.match(/(https?:\/\/[^\s]+)/);
     return match ? match[0] : null;
@@ -55,7 +55,6 @@ bot.on('text', async (ctx) => {
     const text = ctx.message.text;
     const userId = ctx.from.id;
 
-    // Рассылка от админа
     if (waitingForBroadcast && userId === ADMIN_ID) {
         waitingForBroadcast = false;
         ctx.reply(`📢 Начинаю рассылку...`);
@@ -68,83 +67,61 @@ bot.on('text', async (ctx) => {
 
     const cleanUrl = extractUrl(text);
 
-    // Если прислали ссылку — запускаем загрузку
     if (cleanUrl) {
         userLinks[userId] = cleanUrl;
         const statusMessage = await ctx.reply('⏳');
 
         try {
-            // Основное API
-            const response = await axios.get(`https://api.agatz.xyz/api/allinone?url=${encodeURIComponent(cleanUrl)}`);
+            // Стабильный глобальный шлюз
+            const response = await axios.get(`https://api.leoxhtml.my.id/api/download/allinone?url=${encodeURIComponent(cleanUrl)}`);
             
-            if (response.data && response.data.status === 200 && response.data.data) {
-                const mediaData = response.data.data;
-                const videoUrl = mediaData.videoUrl || (mediaData.links && mediaData.links.find(l => l.type === 'video')?.url) || mediaData.url;
-
-                if (videoUrl) {
-                    try { await ctx.telegram.deleteMessage(ctx.chat.id, statusMessage.message_id); } catch(e){}
-
-                    const musicKeyboard = Markup.inlineKeyboard([[Markup.button.callback('🎵 Скачать музыку из видео 🎧', 'get_mp3')]]);
-
-                    await ctx.replyWithVideo(videoUrl, { 
-                        caption: `⚡ Скачано легко через @${ctx.botInfo.username}`,
-                        ...musicKeyboard
-                    });
-
-                    db.stats.total_downloads++;
-                    saveDB();
-                    return;
-                }
+            let videoUrl = null;
+            if (response.data && response.data.result) {
+                const res = response.data.result;
+                videoUrl = res.videoUrl || res.url || (res.links && res.links.find(l => l.type === 'video')?.url);
             }
-            
-            // Резервное API
-            const fallback = await axios.get(`https://api.giftedtech.my.id/api/download/allinone?url=${encodeURIComponent(cleanUrl)}`);
-            if (fallback.data && fallback.data.success && fallback.data.result) {
-                const fallbackUrl = fallback.data.result.video_url || fallback.data.result.url;
-                if (fallbackUrl) {
-                    try { await ctx.telegram.deleteMessage(ctx.chat.id, statusMessage.message_id); } catch(e){}
-                    const musicKeyboard = Markup.inlineKeyboard([[Markup.button.callback('🎵 Скачать музыку из видео 🎧', 'get_mp3')]]);
-                    await ctx.replyWithVideo(fallbackUrl, { caption: `⚡ Скачано через @${ctx.botInfo.username}`, ...musicKeyboard });
-                    db.stats.total_downloads++;
-                    saveDB();
-                    return;
+
+            // Запасной шлюз
+            if (!videoUrl) {
+                const res2 = await axios.get(`https://api.alyachan.pro/api/allinone?url=${encodeURIComponent(cleanUrl)}`);
+                if (res2.data && res2.data.result) {
+                    videoUrl = res2.data.result.videoUrl || res2.data.result.url || res2.data.result.mp4;
                 }
             }
 
-            throw new Error('No video found');
+            if (videoUrl) {
+                try { await ctx.telegram.deleteMessage(ctx.chat.id, statusMessage.message_id); } catch(e){}
+
+                const musicKeyboard = Markup.inlineKeyboard([[Markup.button.callback('🎵 Скачать музыку из видео 🎧', 'get_mp3')]]);
+
+                await ctx.replyWithVideo(videoUrl, { 
+                    caption: `⚡ Скачано легко через @${ctx.botInfo.username}`,
+                    ...musicKeyboard
+                });
+
+                db.stats.total_downloads++;
+                saveDB();
+                return;
+            }
+
+            throw new Error('No media found');
 
         } catch (error) {
             console.error(error);
             try { await ctx.telegram.deleteMessage(ctx.chat.id, statusMessage.message_id); } catch(e){}
-            ctx.reply('❌ Ошибка загрузки. Попробуй еще раз. Если не получается — загляни в кнопку «🆘 Помощь».');
+            ctx.reply('❌ Сервер загрузки временно перегружен запросами. Попробуй переотправить ссылку через 5 секунд!');
         }
     } else {
-        // Обработка обычных текстовых кнопок меню
         if (text === '🔥 Топ Скачиваний') {
             return ctx.reply(`📊 Статистика бота:\n• Пользователей в базе: ${db.users.length}\n• Всего успешно скачано: ${db.stats.total_downloads} файлов`);
         }
         if (text === 'ℹ️ Инструкция') {
-            return ctx.reply('📖 Быстрая инструкция:\n\n1. Открой TikTok, Instagram или YouTube.\n2. Нажми кнопку «Поделиться» и скопируй ссылку.\n3. Отправь ссылку мне в чат.\n4. Через пару секунд я пришлю тебе готовый файл!\n\n🎵 Под каждым видео будет кнопка для скачивания MP3 дорожки.');
+            return ctx.reply('📖 Быстрая инструкция:\n\n1. Скопируй ссылку на видео.\n2. Отправь её мне в чат.\n3. Через пару секунд забирай готовый файл!');
         }
         if (text === '🆘 Помощь') {
-            const helpText = 
-                "🆘 Что делать, если бот выдает ошибку?\n\n" +
-                "1️⃣ **Проверь приватность:** Бот не умеет скачивать видео из закрытых (приватных) аккаунтов. Профиль автора должен быть открыт.\n" +
-                "2️⃣ **Удаленное медиа:** Возможно, автор только что удалил видео или оно заблокировано платформой.\n" +
-                "3️⃣ **Ограничения YouTube:** Слишком длинные видео (фильмы, стримы по 2-3 часа) бот скачать не сможет, отправляй только Reels, Shorts или короткие ролики.\n" +
-                "4️⃣ **Перегрузка серверов:** Если часики зависли, просто подожди 10 секунд и отправь ссылку еще раз.";
-            return ctx.reply(helpText);
+            return ctx.reply("🆘 Ошибка загрузки?\n\n1️⃣ Проверь, чтобы профиль автора был открытым.\n2️⃣ Стримы и видео длиннее 10 минут не поддерживаются.\n3️⃣ Если сервер лег, просто отправь ссылку еще раз через пару секунд.");
         }
-        if (text === '🌟 Поддержать') {
-            const donateText = 
-                "🌟 Понравился бот?\n\n" +
-                "Ты можешь поддержать разработчика и помочь проекту оставаться бесплатным и быстрым! Все донаты идут исключительно на оплату мощных серверов хостинга.\n\n" +
-                "💳 **Для поддержки проекта:**\n" +
-                "• Сюда можно вписать карту, крипту или ссылку на Qiwi / ЮMoney!\n\n" +
-                "Спасибо, что ты с нами! 🚀";
-            return ctx.reply(donateText);
-        }
-        ctx.reply('🤖 Отправь мне рабочую ссылку на видео, и я сразу пришлю тебе файл!');
+        ctx.reply('🤖 Отправь мне рабочую ссылку, и я сразу пришлю тебе файл!');
     }
 });
 
@@ -152,14 +129,14 @@ bot.on('text', async (ctx) => {
 bot.action('get_mp3', async (ctx) => {
     const userId = ctx.from.id;
     const url = userLinks[userId];
-    if (!url) return ctx.answerCbQuery('❌ Ссылка устарела. Отправь её заново!', { show_alert: true });
+    if (!url) return ctx.answerCbQuery('❌ Ссылка устарела!', { show_alert: true });
 
     await ctx.answerCbQuery('Извлекаю аудио... ⏳');
     try {
-        const response = await axios.get(`https://api.agatz.xyz/api/allinone?url=${encodeURIComponent(url)}`);
-        const audioUrl = response.data?.data?.audioUrl || response.data?.data?.url;
+        const response = await axios.get(`https://api.leoxhtml.my.id/api/download/allinone?url=${encodeURIComponent(url)}`);
+        const audioUrl = response.data?.result?.audioUrl || response.data?.result?.url;
         if (audioUrl) {
-            await ctx.replyWithAudio(audioUrl, { caption: '🎵 Аудио извлечено успешно!' });
+            await ctx.replyWithAudio(audioUrl, { caption: '🎵 Аудио успешно извлечено!' });
         } else {
             await ctx.reply('❌ Не удалось вытащить звук.');
         }
@@ -178,8 +155,9 @@ bot.action('admin_broadcast', (ctx) => {
     if (ctx.from.id !== ADMIN_ID) return ctx.answerCbQuery();
     ctx.answerCbQuery();
     waitingForBroadcast = true;
-    ctx.reply('📝 Напиши текст рассылки для ВСЕХ пользователей:');
+    ctx.reply('📝 Напиши текст рассылки:');
 });
 
-bot.launch().then(() => console.log('🚀 Бот успешно перезапущен с новыми фичами!'));
+bot.launch().then(() => console.log('🚀 Бот перезапущен в чистом виде!'));
+
 
