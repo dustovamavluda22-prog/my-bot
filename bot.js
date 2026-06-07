@@ -33,14 +33,9 @@ bot.start((ctx) => {
         "👋 Привет, друг!\n\n" +
         "🤖 Я твой быстрый бот для скачивания медиа!\n\n" +
         "📥 Просто отправь мне ссылку на видео из TikTok, YouTube или Instagram Reels, и я сразу пришлю тебе файл!\n\n" +
-        "👇 Используй меню ниже для навигации:";
+        "👇 Используй меню ниже:";
     
-    ctx.reply(welcomeText, 
-        Markup.keyboard([
-            ['🔥 Top Скачиваний', 'ℹ️ Инструкция'],
-            ['🆘 Помощь']
-        ]).resize()
-    );
+    ctx.reply(welcomeText, Markup.keyboard([['🔥 Топ Скачиваний', 'ℹ️ Инструкция'], ['🆘 Помощь']]).resize());
 });
 
 // Вычищаем мусор из ссылок
@@ -71,72 +66,51 @@ bot.on('text', async (ctx) => {
         userLinks[userId] = cleanUrl;
         const statusMessage = await ctx.reply('⏳');
 
-        let videoUrl = null;
-
-        // ШЛЮЗ 1 (Таймаут 8 сек)
         try {
-            const response = await axios.get(`https://api.leoxhtml.my.id/api/download/allinone?url=${encodeURIComponent(cleanUrl)}`, { timeout: 8000 });
-            if (response.data && response.data.result) {
-                const res = response.data.result;
-                videoUrl = res.videoUrl || res.url || (res.links && res.links.find(l => l.type === 'video')?.url);
-            }
-        } catch (e) {}
-
-        // ШЛЮЗ 2 (Сюда пролезала индонезийская реклама, теперь берем ОПТИМИЗИРОВАННО)
-        if (!videoUrl) {
-            try {
-                const res2 = await axios.get(`https://api.alyachan.pro/api/allinone?url=${encodeURIComponent(cleanUrl)}`, { timeout: 8000 });
-                if (res2.data && res2.data.result) {
-                    // Берем строго прямую ссылку на MP4 файл, игнорируя текст создателя API
-                    videoUrl = res2.data.result.videoUrl || res2.data.result.url || res2.data.result.mp4;
-                }
-            } catch (e) {}
-        }
-
-        // ШЛЮЗ 3
-        if (!videoUrl) {
-            try {
-                const res3 = await axios.get(`https://api.vreden.my.id/api/download/allinone?url=${encodeURIComponent(cleanUrl)}`, { timeout: 8000 });
-                if (res3.data && res3.data.result && res3.data.result.url) {
-                    videoUrl = res3.data.result.url;
-                }
-            } catch (e) {}
-        }
-
-        // Если нашли видео — шлем ЖЕСТКО БЕЗ ЧУЖОЙ РЕКЛАМЫ
-        if (videoUrl) {
-            try { await ctx.telegram.deleteMessage(ctx.chat.id, statusMessage.message_id); } catch(e){}
-
-            const musicKeyboard = Markup.inlineKeyboard([[Markup.button.callback('🎵 Скачать музыку из видео 🎧', 'get_mp3')]]);
-
-            // Твое фирменное описание видео без левых ссылок!
-            await ctx.replyWithVideo(videoUrl, { 
-                caption: `⚡ Видео скачано успешно через @${ctx.botInfo.username}`,
-                ...musicKeyboard
+            // Новый супер-стабильный глобальный шлюз (без рекламы и задержек)
+            const response = await axios.get(`https://api.cobalt.tools/api/json?url=${encodeURIComponent(cleanUrl)}`, {
+                headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+                timeout: 12000 // Ждем максимум 12 секунд
             });
 
-            db.stats.total_downloads++;
-            saveDB();
-            return;
-        }
+            // Если Cobalt вернул прямую ссылку на видео
+            if (response.data && response.data.url) {
+                try { await ctx.telegram.deleteMessage(ctx.chat.id, statusMessage.message_id); } catch(e){}
 
-        try { await ctx.telegram.deleteMessage(ctx.chat.id, statusMessage.message_id); } catch(e){}
-        ctx.reply('❌ Ошибка загрузки. Сервера заняты, попробуй еще раз через пару секунд!');
+                const musicKeyboard = Markup.inlineKeyboard([[Markup.button.callback('🎵 Скачать музыку из видео 🎧', 'get_mp3')]]);
+
+                await ctx.replyWithVideo(response.data.url, { 
+                    caption: `⚡ Скачано легко через @${ctx.botInfo.username}`,
+                    ...musicKeyboard
+                });
+
+                db.stats.total_downloads++;
+                saveDB();
+                return;
+            }
+
+            throw new Error('Cobalt error');
+
+        } catch (error) {
+            console.error('Ошибка шлюза:', error.message);
+            try { await ctx.telegram.deleteMessage(ctx.chat.id, statusMessage.message_id); } catch(e){}
+            ctx.reply('❌ Не удалось загрузить видео. Возможно, сервер перегружен, или видео приватное. Попробуй еще раз!');
+        }
     } else {
         if (text === '🔥 Топ Скачиваний') {
-            return ctx.reply(`📊 Статистика бота:\n• Пользователей в базе: ${db.users.length}\n• Всего успешно скачано: ${db.stats.total_downloads} файлов`);
+            return ctx.reply(`📊 Статистика бота:\n• Пользователей: ${db.users.length}\n• Скачано: ${db.stats.total_downloads}`);
         }
         if (text === 'ℹ️ Инструкция') {
-            return ctx.reply('📖 Инструкция:\n1. Скопируй ссылку на видео.\n2. Отправь её мне в чат.\n3. Забирай готовый файл!');
+            return ctx.reply('📖 Инструкция:\n1. Скопируй ссылку.\n2. Отправь её мне в чат.\n3. Забирай готовый файл!');
         }
         if (text === '🆘 Помощь') {
-            return ctx.reply("🆘 Ошибка загрузки?\n\n1️⃣ Проверь, чтобы профиль автора был открытым.\n2️⃣ Видео длиннее 10 минут не поддерживаются.\n3️⃣ Если сервер лег, просто отправь ссылку еще раз через 5 секунд.");
+            return ctx.reply("🆘 Ошибка загрузки?\n\n1️⃣ Проверь, чтобы профиль был открытым.\n2️⃣ Стримы и длинные видео не поддерживаются.\n3️⃣ Отправь ссылку еще раз через пару секунд.");
         }
         ctx.reply('🤖 Отправь мне рабочую ссылку, и я сразу пришлю тебе файл!');
     }
 });
 
-// 3. Извлечение MP3
+// 3. Извлечение MP3 через тот же стабильный шлюз
 bot.action('get_mp3', async (ctx) => {
     const userId = ctx.from.id;
     const url = userLinks[userId];
@@ -144,10 +118,9 @@ bot.action('get_mp3', async (ctx) => {
 
     await ctx.answerCbQuery('Извлекаю аудио... ⏳');
     try {
-        const response = await axios.get(`https://api.leoxhtml.my.id/api/download/allinone?url=${encodeURIComponent(url)}`);
-        const audioUrl = response.data?.result?.audioUrl || response.data?.result?.url;
-        if (audioUrl) {
-            await ctx.replyWithAudio(audioUrl, { caption: '🎵 Аудио успешно извлечено!' });
+        const response = await axios.get(`https://api.cobalt.tools/api/json?url=${encodeURIComponent(url)}`);
+        if (response.data && response.data.url) {
+            await ctx.replyWithAudio(response.data.url, { caption: '🎵 Аудио успешно извлечено!' });
         } else {
             await ctx.reply('❌ Не удалось вытащить звук.');
         }
@@ -169,7 +142,8 @@ bot.action('admin_broadcast', (ctx) => {
     ctx.reply('📝 Напиши текст рассылки:');
 });
 
-bot.launch().then(() => console.log('🚀 Бот работает идеально и без рекламы!'));
+bot.launch().then(() => console.log('🚀 Бот запущен на бессмертном шлюзе Cobalt!'));
+
 
 
 
