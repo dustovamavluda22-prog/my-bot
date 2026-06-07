@@ -5,7 +5,7 @@ const fs = require('fs');
 // Твой токен
 const bot = new Telegraf('8883314122:AAF_iwlBfEeGWc01AO3i5FpRpIpX6U0EPss');
 
-// Твой Telegram ID — ПОЛНАЯ ЗАЩИТА
+// Твой Telegram ID
 const ADMIN_ID = 6695270539; 
 
 // Файл для хранения пользователей и статистики
@@ -13,45 +13,41 @@ const DB_FILE = 'users.json';
 let db = { users: [], stats: { total_downloads: 0 } };
 
 if (fs.existsSync(DB_FILE)) {
-    try {
-        db = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
-    } catch (e) {
-        console.log('Ошибка чтения базы данных');
-    }
+    try { db = JSON.parse(fs.readFileSync(DB_FILE, 'utf8')); } catch (e) { console.log('Ошибка чтения БД'); }
 }
 
-function saveDB() {
-    fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
-}
+function saveDB() { fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2)); }
 
 function registerUser(ctx) {
     const userId = ctx.from.id;
-    if (!db.users.includes(userId)) {
-        db.users.push(userId);
-        saveDB();
-    }
+    if (!db.users.includes(userId)) { db.users.push(userId); saveDB(); }
 }
 
-// Временное хранилище ссылок для извлечения MP3
 const userLinks = {};
 let waitingForBroadcast = false;
 
-// 1. Главное меню (/start)
+// 1. Главное меню (Обновленное, с новыми кнопками)
 bot.start((ctx) => {
     registerUser(ctx);
-    
     const welcomeText = 
         "👋 Привет, друг!\n\n" +
         "🤖 Я твой быстрый бот для скачивания медиа!\n\n" +
         "📥 Просто отправь мне ссылку на видео из TikTok, YouTube или Instagram Reels, и я сразу пришлю тебе файл!\n\n" +
-        "👇 Используй меню ниже для проверки статистики или чтения инструкции:";
-
+        "👇 Используй меню ниже для навигации:";
+    
     ctx.reply(welcomeText, 
         Markup.keyboard([
-            ['🔥 Топ Скачиваний', 'ℹ️ Инструкция']
+            ['🔥 Топ Скачиваний', 'ℹ️ Инструкция'],
+            ['🆘 Помощь', '🌟 Поддержать']
         ]).resize()
     );
 });
+
+// Функция для очистки ссылок от мусора приложений
+function extractUrl(text) {
+    const match = text.match(/(https?:\/\/[^\s]+)/);
+    return match ? match[0] : null;
+}
 
 // 2. Прием сообщений и ссылок
 bot.on('text', async (ctx) => {
@@ -59,128 +55,131 @@ bot.on('text', async (ctx) => {
     const text = ctx.message.text;
     const userId = ctx.from.id;
 
-    // Строгая проверка админа для рассылки
-    if (waitingForBroadcast) {
-        if (userId !== ADMIN_ID) {
-            waitingForBroadcast = false;
-            return;
-        }
+    // Рассылка от админа
+    if (waitingForBroadcast && userId === ADMIN_ID) {
         waitingForBroadcast = false;
         ctx.reply(`📢 Начинаю рассылку...`);
         let successCount = 0;
         for (const id of db.users) {
-            try {
-                await ctx.telegram.sendMessage(id, text);
-                successCount++;
-            } catch (err) {}
+            try { await ctx.telegram.sendMessage(id, text); successCount++; } catch (err) {}
         }
         return ctx.reply(`✅ Рассылка завершена! Доставлено: ${successCount}/${db.users.length}`);
     }
 
-    // Если прислали ссылку — КАЧАЕМ СРАЗУ!
-    if (text.includes('http://') || text.includes('https://')) {
-        userLinks[userId] = text; // Запоминаем для кнопки MP3
-        
-        // Отправляем ТОЛЬКО анимированные часики ⏳
+    const cleanUrl = extractUrl(text);
+
+    // Если прислали ссылку — запускаем загрузку
+    if (cleanUrl) {
+        userLinks[userId] = cleanUrl;
         const statusMessage = await ctx.reply('⏳');
 
         try {
-            // Запрос к стабильному API на базе движка SaveFrom
-            const response = await axios.post('https://worker.sf-api.com/api/v1/download', {
-                url: text
-            }, {
-                headers: {
-                    'Content-Type': 'application/json',
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            // Основное API
+            const response = await axios.get(`https://api.agatz.xyz/api/allinone?url=${encodeURIComponent(cleanUrl)}`);
+            
+            if (response.data && response.data.status === 200 && response.data.data) {
+                const mediaData = response.data.data;
+                const videoUrl = mediaData.videoUrl || (mediaData.links && mediaData.links.find(l => l.type === 'video')?.url) || mediaData.url;
+
+                if (videoUrl) {
+                    try { await ctx.telegram.deleteMessage(ctx.chat.id, statusMessage.message_id); } catch(e){}
+
+                    const musicKeyboard = Markup.inlineKeyboard([[Markup.button.callback('🎵 Скачать музыку из видео 🎧', 'get_mp3')]]);
+
+                    await ctx.replyWithVideo(videoUrl, { 
+                        caption: `⚡ Скачано легко через @${ctx.botInfo.username}`,
+                        ...musicKeyboard
+                    });
+
+                    db.stats.total_downloads++;
+                    saveDB();
+                    return;
                 }
-            });
-
-            // Ищем прямую ссылку на видео в ответе
-            if (response.data && response.data.url && response.data.url[0] && response.data.url[0].url) {
-                const videoUrl = response.data.url[0].url;
-
-                // Удаляем часики ⏳
-                try { await ctx.telegram.deleteMessage(ctx.chat.id, statusMessage.message_id); } catch(e){}
-
-                // Создаем красивую кнопку СКАЧАТЬ МУЗЫКУ прямо под видео
-                const musicKeyboard = Markup.inlineKeyboard([
-                    [Markup.button.callback('🎵 Скачать музыку из видео 🎧', 'get_mp3')]
-                ]);
-
-                // Отправляем готовое видео с кнопкой под ним!
-                await ctx.replyWithVideo(videoUrl, { 
-                    caption: `⚡ Скачано легко через @${ctx.botInfo.username}`,
-                    ...musicKeyboard
-                });
-
-                db.stats.total_downloads++;
-                saveDB();
-            } else {
-                try { await ctx.telegram.deleteMessage(ctx.chat.id, statusMessage.message_id); } catch(e){}
-                ctx.reply('❌ Видео не найдено. Возможно, профиль приватный или ссылка неверная.');
             }
+            
+            // Резервное API
+            const fallback = await axios.get(`https://api.giftedtech.my.id/api/download/allinone?url=${encodeURIComponent(cleanUrl)}`);
+            if (fallback.data && fallback.data.success && fallback.data.result) {
+                const fallbackUrl = fallback.data.result.video_url || fallback.data.result.url;
+                if (fallbackUrl) {
+                    try { await ctx.telegram.deleteMessage(ctx.chat.id, statusMessage.message_id); } catch(e){}
+                    const musicKeyboard = Markup.inlineKeyboard([[Markup.button.callback('🎵 Скачать музыку из видео 🎧', 'get_mp3')]]);
+                    await ctx.replyWithVideo(fallbackUrl, { caption: `⚡ Скачано через @${ctx.botInfo.username}`, ...musicKeyboard });
+                    db.stats.total_downloads++;
+                    saveDB();
+                    return;
+                }
+            }
+
+            throw new Error('No video found');
+
         } catch (error) {
             console.error(error);
             try { await ctx.telegram.deleteMessage(ctx.chat.id, statusMessage.message_id); } catch(e){}
-            ctx.reply('❌ Ошибка загрузки. Попробуй отправить ссылку еще раз через пару секунд.');
+            ctx.reply('❌ Ошибка загрузки. Попробуй еще раз. Если не получается — загляни в кнопку «🆘 Помощь».');
         }
     } else {
-        // Кнопки нижнего меню
+        // Обработка обычных текстовых кнопок меню
         if (text === '🔥 Топ Скачиваний') {
-            return ctx.reply(`📊 Статистика бота:\n• Пользователей: ${db.users.length}\n• Скачано файлов: ${db.stats.total_downloads}`);
+            return ctx.reply(`📊 Статистика бота:\n• Пользователей в базе: ${db.users.length}\n• Всего успешно скачано: ${db.stats.total_downloads} файлов`);
         }
         if (text === 'ℹ️ Инструкция') {
-            return ctx.reply('📖 Как пользоваться:\n1. Скопируй ссылку на видео.\n2. Отправь её мне.\n3. Я сразу пришлю тебе видеофайл.\n4. Если нужна музыка — нажми на кнопку под присланным видео!');
+            return ctx.reply('📖 Быстрая инструкция:\n\n1. Открой TikTok, Instagram или YouTube.\n2. Нажми кнопку «Поделиться» и скопируй ссылку.\n3. Отправь ссылку мне в чат.\n4. Через пару секунд я пришлю тебе готовый файл!\n\n🎵 Под каждым видео будет кнопка для скачивания MP3 дорожки.');
         }
-        ctx.reply('🤖 Отправь мне ссылку на видео, и я сразу пришлю тебе файл!');
+        if (text === '🆘 Помощь') {
+            const helpText = 
+                "🆘 Что делать, если бот выдает ошибку?\n\n" +
+                "1️⃣ **Проверь приватность:** Бот не умеет скачивать видео из закрытых (приватных) аккаунтов. Профиль автора должен быть открыт.\n" +
+                "2️⃣ **Удаленное медиа:** Возможно, автор только что удалил видео или оно заблокировано платформой.\n" +
+                "3️⃣ **Ограничения YouTube:** Слишком длинные видео (фильмы, стримы по 2-3 часа) бот скачать не сможет, отправляй только Reels, Shorts или короткие ролики.\n" +
+                "4️⃣ **Перегрузка серверов:** Если часики зависли, просто подожди 10 секунд и отправь ссылку еще раз.";
+            return ctx.reply(helpText);
+        }
+        if (text === '🌟 Поддержать') {
+            const donateText = 
+                "🌟 Понравился бот?\n\n" +
+                "Ты можешь поддержать разработчика и помочь проекту оставаться бесплатным и быстрым! Все донаты идут исключительно на оплату мощных серверов хостинга.\n\n" +
+                "💳 **Для поддержки проекта:**\n" +
+                "• Сюда можно вписать карту, крипту или ссылку на Qiwi / ЮMoney!\n\n" +
+                "Спасибо, что ты с нами! 🚀";
+            return ctx.reply(donateText);
+        }
+        ctx.reply('🤖 Отправь мне рабочую ссылку на видео, и я сразу пришлю тебе файл!');
     }
 });
 
-// 3. Обработка кнопки "Скачать музыку" под видео
+// 3. Извлечение MP3
 bot.action('get_mp3', async (ctx) => {
     const userId = ctx.from.id;
     const url = userLinks[userId];
+    if (!url) return ctx.answerCbQuery('❌ Ссылка устарела. Отправь её заново!', { show_alert: true });
 
-    if (!url) {
-        return ctx.answerCbQuery('❌ Ссылка устарела. Отправь её заново!', { show_alert: true });
-    }
-
-    await ctx.answerCbQuery('Извлекаю аудиодорожку... ⏳');
-
+    await ctx.answerCbQuery('Извлекаю аудио... ⏳');
     try {
-        const response = await axios.post('https://worker.sf-api.com/api/v1/download', { url: url });
-
-        if (response.data && response.data.url && response.data.url[0] && response.data.url[0].url) {
-            await ctx.replyWithAudio(response.data.url[0].url, { caption: '🎵 Аудио извлечено успешно!' });
+        const response = await axios.get(`https://api.agatz.xyz/api/allinone?url=${encodeURIComponent(url)}`);
+        const audioUrl = response.data?.data?.audioUrl || response.data?.data?.url;
+        if (audioUrl) {
+            await ctx.replyWithAudio(audioUrl, { caption: '🎵 Аудио извлечено успешно!' });
         } else {
             await ctx.reply('❌ Не удалось вытащить звук.');
         }
     } catch (error) {
-        console.error(error);
         await ctx.reply('❌ Ошибка при конвертации в MP3.');
     }
 });
 
-// ================= АДМИНКА =================
+// Админка
 bot.command('admin', (ctx) => {
-    if (ctx.from.id !== ADMIN_ID) {
-        return ctx.reply('❌ У тебя нет прав для использования этой команды.');
-    }
-    const adminKeyboard = Markup.inlineKeyboard([
-        [Markup.button.callback('📢 Сделать рассылку', 'admin_broadcast')]
-    ]);
-    ctx.reply('👑 Добро пожаловать в секретную Admin-панель!', adminKeyboard);
+    if (ctx.from.id !== ADMIN_ID) return ctx.reply('❌ Нет прав.');
+    ctx.reply('👑 Админ-панель:', Markup.inlineKeyboard([[Markup.button.callback('📢 Рассылка', 'admin_broadcast')]]));
 });
 
 bot.action('admin_broadcast', (ctx) => {
     if (ctx.from.id !== ADMIN_ID) return ctx.answerCbQuery();
     ctx.answerCbQuery();
     waitingForBroadcast = true;
-    ctx.reply('📝 Напиши text рассылки для ВСЕХ пользователей:');
+    ctx.reply('📝 Напиши текст рассылки для ВСЕХ пользователей:');
 });
-// ===============================================================
 
-bot.launch().then(() => console.log('🚀 Бот на движке SaveFrom успешно запущен!'));
+bot.launch().then(() => console.log('🚀 Бот успешно перезапущен с новыми фичами!'));
 
-process.once('SIGINT', () => bot.stop('SIGINT'));
-process.once('SIGTERM', () => bot.stop('SIGTERM'));
