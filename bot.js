@@ -2,8 +2,8 @@ const { Telegraf, Markup } = require('telegraf');
 const axios = require('axios');
 const fs = require('fs');
 
-// Твой токен
-const bot = new Telegraf('8883314122:AAF_iwlBfEeGWc01AO3i5FpRpIpX6U0EPss');
+// Твой НОВЫЙ боевой токен (старый стерт навсегда)
+const bot = new Telegraf('8883314122:AAHd_MYGF5GSZBOSk94PPAXpEZCQsW4u4GQ');
 
 // Твой Telegram ID
 const ADMIN_ID = 6695270539; 
@@ -33,9 +33,14 @@ bot.start((ctx) => {
         "👋 Привет, друг!\n\n" +
         "🤖 Я твой быстрый бот для скачивания медиа!\n\n" +
         "📥 Просто отправь мне ссылку на видео из TikTok, YouTube или Instagram Reels, и я сразу пришлю тебе файл!\n\n" +
-        "👇 Используй меню ниже:";
+        "👇 Используй меню ниже для навигации:";
     
-    ctx.reply(welcomeText, Markup.keyboard([['🔥 Топ Скачиваний', 'ℹ️ Инструкция'], ['🆘 Помощь']]).resize());
+    ctx.reply(welcomeText, 
+        Markup.keyboard([
+            ['🔥 Топ Скачиваний', 'ℹ️ Инструкция'],
+            ['🆘 Помощь']
+        ]).resize()
+    );
 });
 
 // Вычищаем мусор из ссылок
@@ -67,18 +72,18 @@ bot.on('text', async (ctx) => {
         const statusMessage = await ctx.reply('⏳');
 
         try {
-            // Новый супер-стабильный глобальный шлюз (без рекламы и задержек)
+            // Бессмертный глобальный шлюз Cobalt
             const response = await axios.get(`https://api.cobalt.tools/api/json?url=${encodeURIComponent(cleanUrl)}`, {
                 headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
                 timeout: 12000 // Ждем максимум 12 секунд
             });
 
-            // Если Cobalt вернул прямую ссылку на видео
             if (response.data && response.data.url) {
                 try { await ctx.telegram.deleteMessage(ctx.chat.id, statusMessage.message_id); } catch(e){}
 
                 const musicKeyboard = Markup.inlineKeyboard([[Markup.button.callback('🎵 Скачать музыку из видео 🎧', 'get_mp3')]]);
 
+                // Твоё фирменное описание! Никакого спама!
                 await ctx.replyWithVideo(response.data.url, { 
                     caption: `⚡ Скачано легко через @${ctx.botInfo.username}`,
                     ...musicKeyboard
@@ -89,28 +94,28 @@ bot.on('text', async (ctx) => {
                 return;
             }
 
-            throw new Error('Cobalt error');
+            throw new Error('Cobalt empty response');
 
         } catch (error) {
             console.error('Ошибка шлюза:', error.message);
             try { await ctx.telegram.deleteMessage(ctx.chat.id, statusMessage.message_id); } catch(e){}
-            ctx.reply('❌ Не удалось загрузить видео. Возможно, сервер перегружен, или видео приватное. Попробуй еще раз!');
+            ctx.reply('❌ Не удалось загрузить видео. Возможно, сервер перегружен или видео приватное. Попробуй еще раз!');
         }
     } else {
         if (text === '🔥 Топ Скачиваний') {
-            return ctx.reply(`📊 Статистика бота:\n• Пользователей: ${db.users.length}\n• Скачано: ${db.stats.total_downloads}`);
+            return ctx.reply(`📊 Статистика бота:\n• Пользователей в базе: ${db.users.length}\n• Всего успешно скачано: ${db.stats.total_downloads} файлов`);
         }
         if (text === 'ℹ️ Инструкция') {
-            return ctx.reply('📖 Инструкция:\n1. Скопируй ссылку.\n2. Отправь её мне в чат.\n3. Забирай готовый файл!');
+            return ctx.reply('📖 Быстрая инструкция:\n\n1. Скопируй ссылку на видео.\n2. Отправь её мне в чат.\n3. Через пару секунд забирай готовый файл!');
         }
         if (text === '🆘 Помощь') {
-            return ctx.reply("🆘 Ошибка загрузки?\n\n1️⃣ Проверь, чтобы профиль был открытым.\n2️⃣ Стримы и длинные видео не поддерживаются.\n3️⃣ Отправь ссылку еще раз через пару секунд.");
+            return ctx.reply("🆘 Ошибка загрузки?\n\n1️⃣ Проверь, чтобы профиль автора был открытым.\n2️⃣ Стримы и видео длиннее 10 минут не поддерживаются.\n3️⃣ Если сервер лег, просто отправь ссылку еще раз через пару секунд.");
         }
         ctx.reply('🤖 Отправь мне рабочую ссылку, и я сразу пришлю тебе файл!');
     }
 });
 
-// 3. Извлечение MP3 через тот же стабильный шлюз
+// 3. Извлечение MP3
 bot.action('get_mp3', async (ctx) => {
     const userId = ctx.from.id;
     const url = userLinks[userId];
@@ -142,7 +147,8 @@ bot.action('admin_broadcast', (ctx) => {
     ctx.reply('📝 Напиши текст рассылки:');
 });
 
-bot.launch().then(() => console.log('🚀 Бот запущен на бессмертном шлюзе Cobalt!'));
+bot.launch().then(() => console.log('🚀 Бот перезапущен на 101% чистом токене!'));
+
 
 
 
